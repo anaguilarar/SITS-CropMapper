@@ -1,0 +1,103 @@
+DATASETS:
+  bach_size: 12
+  mask_times: true
+  n_bands: 7
+  n_months: 12
+  paths:
+    training_input: hls_data48/segmentation/training_input/
+    training_target: hls_data48/segmentation/training_target/
+    validation_input: hls_data48/segmentation/validation_input/
+    validation_target: hls_data48/segmentation/validation_target/
+  transform_parameters:
+    flip:
+    - -1
+    - 1
+    gaussian:
+    - 0.0001
+    - 0.03
+    rotation:
+    - 10
+    - 180
+    shift:
+    - 5
+    - 20
+    zoom:
+    - 0.1
+    - 0.5
+GENERAL:
+  output_path: runs_dino/
+LOSS:
+  center_momentum: 0.9
+  exclude_class: 0
+  gamma: 1
+  name: masked_focal_loss
+MODEL:
+  depth: 6
+  dim: 256
+  dim_head: 64
+  dropout: 0.1
+  emb_dropout: 0.3
+  head_type: summconv2
+  heads: 16
+  img_res: 48
+  mlp_ratio: 4
+  model_name: DinoTSViT
+  num_channels: 8
+  patch_size: 2
+  patch_size_time: 1
+  patch_time: 4
+  pool: cls
+  pretrained: null
+  spatial_block: ViT
+  spatial_depth: 4
+  temporal_depth: 5
+  time_window: 365
+  window_size: 4
+SCHEDULER:
+  lr:
+    base_value: 0.0001
+    final_value: 1.0e-06
+    start_warmup_value: 1.0e-08
+    warmup_epochs: 10
+  wd:
+    base_value: 0.04
+    final_value: 0.4
+TRAIN:
+  backbone_weight_path: runs_dino/run5_48px_months12_DinoTSViT_dim256ViTcls/teacher_backbone_99_model_params
+  clip_grad: 3
+  finetune_backbone_lr: 1.0e-05
+  finetune_head_lr: 0.0001
+  finetune_wd: 1.0e-05
+  froze_backbone: false
+  head_wd: 0.0
+  max_epochs: 100
+  n_classes: 21
+  not_improvement_gap_max: 30
+  output_path: runs_dino_seg/run2_48px_months12_DinoTSViTViTsummconv2_lasttwounf
+  reporter_keys:
+  - epoch
+  - train_loss
+  - train_Accuracy
+  - train_Precision
+  - train_Recall
+  - train_F1
+  - train_IOU
+  - eval_loss
+  - eval_Accuracy
+  - eval_Precision
+  - eval_Recall
+  - eval_F1
+  - eval_IOU
+  start_saving_from: 2
+  step_reporter_keys:
+  - epoch
+  - iter
+  - loss
+  - Accuracy
+  - Precision
+  - Recall
+  - F1
+  - IOU
+  summary_layer: true
+  unfreeze_last_n_spatial: 3
+  unfreeze_last_n_temporal: 3

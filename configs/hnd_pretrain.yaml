@@ -1,0 +1,83 @@
+# Honduras DINO pretraining — Windows GPU server configuration
+# Tuned for a single NVIDIA GPU (tested on RTX 3090 / A-series).
+#
+# patch_size=2  →  (img_res/patch_size)² = 576 spatial tokens
+#   Memory per forward pass (space attention): ~28 MB  (vs ~460 MB for patch_size=1)
+#   Allows crop_batch_size > 1, significantly faster on GPU.
+#
+# To use patch_size=1 (maximum spatial resolution), set:
+#   patch_size: 1
+#   crop_batch_size: 1   (one crop at a time; otherwise OOM)
+#   batch_size: 8        (reduce if still OOM)
+
+model:
+  img_res:        48
+  patch_size:     2        # 576 spatial tokens — GPU-friendly balance of speed/resolution
+  num_classes:    21
+  max_seq_len:    24       # 24 × 14-day = ~11 months
+  dim:            256      # larger than CPU test (64) for richer representations
+  temporal_depth: 4
+  spatial_depth:  2
+  heads:          8
+  dim_head:       32       # dim / heads
+  dropout:        0.1
+  emb_dropout:    0.1
+  pool:           cls
+  scale_dim:      4
+  num_channels:   8        # 7 spectral bands + 1 DOY
+
+data:
+  hls_interval_days: 14
+  patch_size:        48    # spatial tiling size for download (pixels)
+  n_steps:           24
+  img_size:          48
+  n_bands:           7
+  augment_train:     true
+
+download:
+  # Honduras geographic extent — do not change
+  country_bbox: [-89.35, 13.00, -83.15, 16.52]   # [min_lon, min_lat, max_lon, max_lat]
+  # Tile parameters
+  n_tiles:    50           # number of random tiles to download
+  tile_deg:   0.25         # tile side in degrees (~27 km at Honduras latitude)
+  start_date: "2021-01-01"
+  end_date:   "2023-12-31"
+  earthdata_strategy: netrc   # netrc | environment | prompt
+
+training:
+  dino:
+    epochs:           200
+    batch_size:       16
+    lr:               5.0e-4
+    weight_decay:     0.04
+    teacher_momentum: 0.996
+    out_dim:          65536
+    n_global_crops:   2
+    n_local_crops:    6
+    warmup_epochs:    10
+    n_months:         6       # temporal window length fed to MltTileData (legacy path)
+    # GPU batch control:
+    #   crop_batch_size = how many crops processed per forward pass.
+    #   With patch_size=2 and dim=256, a value of 8-16 fits on most GPUs.
+    #   Set to 0 to process all (n_crops × batch_size) crops at once.
+    crop_batch_size:  8
+    save_every:       10      # save checkpoint every N epochs
+
+  finetune:
+    epochs:       50
+    batch_size:   8
+    lr:           1.0e-4
+    lr_backbone:  1.0e-5
+    val_split:    0.15
+    weight_decay: 1.0e-4
+
+lc_classes:
+  1:  Cropland
+  12: Evergreen broadleaf
+  13: Deciduous broadleaf
+  14: Mixed forest
+  16: Shrubland
+  17: Open shrubland
+  18: Woody savanna
+  20: Grassland
+  21: Wetland

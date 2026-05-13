@@ -1,0 +1,59 @@
+# SITS-CropMapper default configuration
+# TSViT backbone for HLS 30m satellite time-series land-cover segmentation
+
+model:
+  img_res:        48        # spatial patch size (pixels)
+  patch_size:     1         # ViT spatial patch size (1 = pixel-level)
+  num_classes:    21        # LC classes (matches self_Vits_SITS label set)
+  max_seq_len:    24        # max time steps (24 x 14-day = ~11 months)
+  dim:            128       # embedding dimension
+  temporal_depth: 4         # temporal transformer layers
+  spatial_depth:  2         # spatial transformer layers
+  heads:          4         # attention heads
+  dim_head:       64        # dimension per head
+  dropout:        0.1
+  emb_dropout:    0.1
+  pool:           cls       # kept for compatibility
+  scale_dim:      4         # MLP hidden = dim * scale_dim
+  num_channels:   8         # 7 spectral bands + 1 DOY channel
+
+data:
+  hls_interval_days: 14     # harmonization cadence (HLS nominal revisit)
+  patch_size:        48     # spatial patch size for download tiling
+  n_steps:           24     # time steps returned by HLSPatchDataset
+  img_size:          48     # expected H=W of each patch
+  augment_train:     true
+
+training:
+  # DINO pretraining
+  dino:
+    epochs:           100
+    batch_size:       16
+    lr:               5.0e-4
+    weight_decay:     0.04
+    teacher_momentum: 0.996
+    out_dim:          65536
+    n_global_crops:   2
+    n_local_crops:    6
+    warmup_epochs:    10
+
+  # Supervised fine-tuning
+  finetune:
+    epochs:       50
+    batch_size:   8
+    lr:           1.0e-4
+    lr_backbone:  1.0e-5
+    val_split:    0.15
+    weight_decay: 1.0e-4
+
+# LC class labels (matches self_Vits_SITS label map)
+lc_classes:
+  1:  Cropland
+  12: Evergreen broadleaf
+  13: Deciduous broadleaf
+  14: Mixed forest
+  16: Shrubland
+  17: Open shrubland
+  18: Woody savanna
+  20: Grassland
+  21: Wetland

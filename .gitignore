@@ -1,0 +1,98 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# skills
+.agents/
+.claude/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+.env/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# PyTorch checkpoints and model weights
+*.pth
+*.pt
+*.ckpt
+
+# Large data files
+*.tif
+*.tiff
+*.geotiff
+*.nc
+*.h5
+*.hdf5
+*.zarr/
+*.npy
+*.npz
+
+# HLS / satellite data downloads
+data/
+hls_data*/
+olancho*/
+
+# Training outputs
+runs/
+runs_dino_seg/
+tmp/
+tmp*.tif
+
+# Results
+results_test/
+*.tif
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+logs/
+
+# OS
+Thumbs.db
+
+# Dask / joblib caches
+dask-worker-space/
+
+# Credentials (never commit)
+.netrc
+credentials*
+secrets*
+*.key
+*.pem
+
+# weigths
+
