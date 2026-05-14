@@ -10,6 +10,9 @@ The system combines a **Temporo-Spatial Vision Transformer (TSViT)** pre-trained
 | Segmentation | TSViT + fine-tuned segmentation head | 21-class land-cover map |
 | Phenology | SMF-S curve fitting on EVI time series | Greenup / Maturity / Senescence / Dormancy DOY |
 
+
+![SITS-CropMapper Workflow](assets/image/workflow.png)
+
 ---
 
 ## Repository structure
