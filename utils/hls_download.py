@@ -210,12 +210,28 @@ def _save_patches(ds, output_path: str, patch_size: int) -> int:
             pad_x = patch_size - patch.sizes["x"]
             if pad_y or pad_x:
                 patch = patch.pad(y=(0, pad_y), x=(0, pad_x), constant_values=0)
+
+            # Write CRS so QGIS and rioxarray readers can locate the patch correctly.
+            # set_spatial_dims is required after isel/pad since rio may lose dim context.
             try:
+                patch = patch.rio.set_spatial_dims(x_dim="x", y_dim="y")
                 patch = patch.rio.write_crs("EPSG:4326", grid_mapping_name="spatial_ref")
-            except Exception:
-                pass
+                # write_crs may not stamp grid_mapping on existing vars in all rioxarray
+                # versions — add it explicitly so CF-compliant readers (QGIS, gdal) see it.
+                for var in list(patch.data_vars):
+                    if var != "spatial_ref":
+                        patch[var].attrs["grid_mapping"] = "spatial_ref"
+            except Exception as exc:
+                warnings.warn(f"CRS write failed for patch {idx}: {exc}")
+
             fname    = os.path.join(output_path, f"hls_patch_{idx:05d}.nc")
-            encoding = {v: {"zlib": True, "complevel": 4} for v in patch.data_vars}
+            encoding = {v: {"zlib": True, "complevel": 4} for v in patch.data_vars
+                        if v != "spatial_ref"}
+            # spatial_ref is a scalar CRS variable — include uncompressed so dask writes it
+            if "spatial_ref" in patch.coords:
+                encoding["spatial_ref"] = {}
+            if "spatial_ref" in patch.data_vars:
+                encoding["spatial_ref"] = {}
             tasks.append(patch.to_netcdf(fname, encoding=encoding, compute=False))
             idx += 1
 
@@ -299,6 +315,77 @@ def download_hls(
     login(strategy=strategy)
     return build_time_series(bbox, start_date, end_date, output_path,
                              patch_size=patch_size, stream=stream, local_dir=local_dir)
+
+
+def repair_crs(patch_dir: str) -> int:
+    """
+    Add missing grid_mapping / spatial_ref CRS metadata to existing patches.
+
+    Patches downloaded before the CRS fix lack the grid_mapping attribute on
+    their data variables, so QGIS cannot place them correctly.  This function
+    rewrites each patch in-place with the correct CF metadata.
+
+    Returns the number of patches repaired.
+    """
+    import netCDF4 as nc4  # use netCDF4 directly to avoid xarray LRU file locking
+    import xarray as xr
+
+    files = list(Path(patch_dir).rglob("*patch_*.nc"))
+    if not files:
+        print(f"No patch files found under {patch_dir}")
+        return 0
+
+    repaired = 0
+    for fpath in files:
+        # Read metadata and data via netCDF4 directly so the file is closed immediately
+        try:
+            with nc4.Dataset(str(fpath), "r") as _nc:
+                needs_fix = any(
+                    not hasattr(_nc.variables.get(v, None), "grid_mapping")
+                    for v in _nc.variables
+                    if v not in ("x", "y", "date", "spatial_ref")
+                )
+                if not needs_fix:
+                    continue
+        except Exception as exc:
+            warnings.warn(f"Could not inspect {fpath.name}: {exc}")
+            continue
+
+        # Re-open via xarray, load all into memory, then let xarray close the handle
+        try:
+            import rioxarray  # noqa: F401
+            ds = xr.open_dataset(str(fpath), mask_and_scale=False, engine="netcdf4")
+            ds.load()
+            ds = ds.copy(deep=True)
+            ds.close()
+            # Force xarray backend cache to release the file handle on Windows
+            try:
+                from xarray.backends.file_manager import FILE_CACHE
+                FILE_CACHE.clear()
+            except Exception:
+                pass
+
+            ds = ds.rio.set_spatial_dims(x_dim="x", y_dim="y")
+            ds = ds.rio.write_crs("EPSG:4326", grid_mapping_name="spatial_ref")
+            for var in list(ds.data_vars):
+                if var != "spatial_ref":
+                    ds[var].attrs["grid_mapping"] = "spatial_ref"
+
+            encoding = {v: {"zlib": True, "complevel": 4} for v in ds.data_vars
+                        if v != "spatial_ref"}
+            if "spatial_ref" in ds.coords or "spatial_ref" in ds.data_vars:
+                encoding["spatial_ref"] = {}
+
+            tmp = fpath.with_suffix(".tmp.nc")
+            ds.to_netcdf(str(tmp), encoding=encoding)
+            # os.replace is atomic: either succeeds or leaves original untouched
+            os.replace(str(tmp), str(fpath))
+            repaired += 1
+        except Exception as exc:
+            warnings.warn(f"Could not repair {fpath.name}: {exc}")
+
+    print(f"Repaired {repaired}/{len(files)} patches in {patch_dir}")
+    return repaired
 
 
 # ---------------------------------------------------------------------------

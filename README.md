@@ -1,39 +1,14 @@
-# SITS-CropMapper: Self-supervised ViT for Satellite Image Time Series
+# SITS-CropMapper
 
-A self-supervised learning framework for crop segmentation and phenology detection from multi-temporal satellite imagery. The system utilizes a **Temporo-Spatial Vision Transformer (TSViT)**—architected specifically to prioritize temporal dynamics over spatial context—pre-trained using **DINO** self-supervision on HLS data, and paired with an **SMF-S** stage-specific phenological detector.
+Self-supervised crop segmentation and phenology detection from multi-temporal satellite imagery.
 
-## Overview
+The system combines a **Temporo-Spatial Vision Transformer (TSViT)** pre-trained with **DINO** self-supervision on HLS (Harmonized Landsat Sentinel-2) time series, followed by a supervised segmentation head and an **SMF-S** phenological detector.
 
-The framework handles the complexity of satellite time series by factorizing temporal and spatial information separately, allowing for precise mapping of both land-cover and growth stages:
-
-| Stage | Method | Core Advantage | Output |
-|-------|--------|----------------|--------|
-| **Land-cover Segmentation** | DinoTSViT + Seg Head | Temporal-then-Spatial factorization | 21-class Crop / Non-crop map |
-| **Phenology Detection** | SMF-S Curve Fitting | Stage-specific iterative fitting | Greenup / Maturity / Senescence / Dormancy DOY |
-
-## Processing Pipeline
-
-The system executes a multi-stage workflow to transform raw satellite observations into agricultural insights:
-
-![SITS-CropMapper Workflow](assets/image/workflow.png)
-
-1.  **Download**: Queries NASA Earthdata for HLS (Sentinel-2 + Landsat) granules over a specified bounding box and date range.
-2.  **Segmentation**: Loads the pre-trained **DinoTSViT** checkpoint and performs land-cover prediction to isolate cropland.
-3.  **Phenology Detection**: Fits EVI time-series to smooth growth curves via the **SMF-S** algorithm to detect the exact Day of Year (DOY) for key phenological stages.
-4.  **Export**: Compiles segmentation maps and phenology dates into standardized spatial products (GeoTIFFs).
-
-**Data source:** [NASA Harmonized Landsat Sentinel-2 (HLS)](https://lpdaac.usgs.gov/products/hlss30v002/) — 30 m, cloud-harmonized time series of surface reflectance.
-
-## Scientific Background
-
-This repository implements the methodologies described in two foundational research papers:
-
-- **TSViT (Temporo-Spatial Vision Transformer):** Tarasiou et al. (2023) *ViTs for SITS: Vision Transformers for Satellite Image Time Series*. CVPR. [PDF](bibliography/vits_for_sits.pdf)
-    - **Temporal-First Factorization:** Unlike video transformers, TSViT processes the entire temporal sequence of a pixel before looking at spatial neighbors, capturing unique phenological "signatures."
-    - **Timing-Aware Encodings:** Uses acquisition-time-specific positional encodings, making the model aware of calendar dates rather than just sequence order.
-- **SMF-S (Shape Model Fitting by Separate stage):** Liu et al. (2022) *Detecting crop phenology from vegetation index time-series data by improved shape model fitting in each phenological stage*. Remote Sensing of Environment. [PDF](bibliography/Detecting%20crop%20phenology%20from%20vegetation%20index%20time-series%20data%20by%20improved%20shape%20model%20fitting.pdf)
-    - **Stage-Specific Fitting:** Overcomes "unsynchronized growth" by fitting shapes to each phenological stage separately using an adaptive local window.
-    - **Iterative Robustness:** Employs a custom iterative search optimization designed to bypass local optima and handle the noise common in 30m HLS data.
+| Stage | Method | Output |
+|---|---|---|
+| Pre-training | DINO self-supervised on unlabelled HLS patches | Transferable backbone weights |
+| Segmentation | TSViT + fine-tuned segmentation head | 21-class land-cover map |
+| Phenology | SMF-S curve fitting on EVI time series | Greenup / Maturity / Senescence / Dormancy DOY |
 
 ---
 
@@ -41,237 +16,258 @@ This repository implements the methodologies described in two foundational resea
 
 ```
 SITS-CropMapper/
-├── models/                         # Neural network definitions
-│   ├── TSViT/                      #   TSViT backbone + modules
-│   │   ├── architectures.py        #   TSViT, SwinTSViT, DinoTSViT
-│   │   ├── module.py               #   Attention blocks, seg heads
-│   │   └── swinTSViT.py
-│   ├── dino_engine.py              #   DINO pre-training engine
-│   ├── dino_enginev2.py            #   Segmentation fine-tuning engine
-│   ├── engine.py                   #   Base training loop
-│   ├── loss_functions.py           #   Focal, DINO, IID losses
-│   └── metrics/numpy_metrics.py    #   Accuracy, F1, IOU
-├── datasets/                       # Data loading & augmentation
-│   ├── agro_satdata.py             #   NetCDF time-series reader
-│   ├── dataloaders.py              #   PyTorch Datasets
-│   ├── image_preprocessing.py      #   Kernel regression, Chen-SG filter
-│   ├── segmentation.py             #   Segmentation target loader
-│   └── transforms/                 #   Tensor/image augmentations
-├── detection/                      # Inference engines
-│   ├── dataset.py                  #   InputImgDataset (patch loader)
-│   ├── detectors.py                #   STViTS_detector
-│   ├── smf_s_class.py              #   SMFS phenology algorithm
-│   └── utils.py                    #   Prediction utilities
-├── utils/                          # Shared utilities
-│   ├── hls_download.py             #   HLS data download & preprocessing
-│   ├── gis_funs.py                 #   Spatial utilities (tiling, VI calc)
-│   ├── general.py                  #   Vegetation index formulas
-│   ├── plots.py                    #   Visualisation helpers
-│   └── reporters.py                #   Training metrics logger
-├── runs_dino_seg/                  # Trained model artefacts
-│   └── run2_48px_months12_…/
-│       ├── config.yml              #   Model configuration
-│       ├── reporter.json           #   Training metrics
-│       └── TSViTS_checkpoint_….pth #   Trained weights (ep 83)
-├── data/                           # Example / reference data
-├── bibliography/                   # Reference PDFs
-├── demo_pipeline.py                # End-to-end demo (download → detect)
-├── requirements.txt
-└── README.md
+│
+├── run_cropmapper.py          # Unified CLI: download | pretrain | finetune | infer
+├── run_hnd_pretrain.py        # Honduras pipeline: random tile download + GPU training
+│
+├── configs/
+│   ├── default.yaml           # Default model/training config
+│   └── hnd_pretrain.yaml      # GPU server config (patch_size=2, dim=256)
+│
+├── models/TSViT/
+│   ├── TSViTdense.py          # Clean TSViT backbone (366-dim DOY encoding)
+│   └── module.py              # Attention, PreNorm, FeedForward blocks
+│
+├── training/
+│   ├── dino_pretrain.py       # DINO trainer (EMA teacher, multi-crop, AMP, resume)
+│   └── finetune_segmentation.py  # Supervised fine-tuning with masked cross-entropy
+│
+├── datasets/
+│   ├── hls_loader.py          # HLSPatchDataset: reads NetCDF patches, 14-day grid
+│   ├── agro_satdata.py        # MltTileData: legacy multi-tile reader (random windows)
+│   ├── dataloaders.py         # Legacy DINO dataloaders
+│   └── transforms/            # Spectral jitter, DINO multi-crop augmentation
+│
+├── utils/
+│   ├── hls_download.py        # HLS download: earthaccess, cloud masking, patch tiling
+│   ├── gis_funs.py            # Spatial utilities
+│   └── general.py             # Vegetation index formulas
+│
+├── detection/                 # Legacy inference engines (STViTS_detector, SMF-S)
+│   ├── detectors.py
+│   ├── smf_s_class.py
+│   └── utils.py
+│
+├── demo_pipeline.py           # Legacy end-to-end demo (download → segment → phenology)
+└── requirements.txt
 ```
 
 ---
 
 ## Installation
 
-### 1. Prerequisites
+### Prerequisites
 
-- Python ≥ 3.10
-- CUDA-capable GPU (recommended for training; CPU inference is possible but slow)
-- [NASA Earthdata account](https://urs.earthdata.nasa.gov/users/new) (required for HLS download)
+- Python 3.10+
+- CUDA GPU recommended for training (CPU works for inference and smoke tests)
+- [NASA Earthdata account](https://urs.earthdata.nasa.gov/users/new) for HLS download
 
-### 2. Environment setup
+### Conda environment
 
 ```bash
-# Create and activate a virtual environment
-python -m venv venv
-source venv/bin/activate        # Linux/macOS
-# or: venv\Scripts\activate     # Windows
+# Linux
+conda create --name sits python=3.10 -y
+conda activate sits
 
-# Install dependencies
+# Windows — if C: is full, redirect conda cache to another drive first
+set TEMP=E:\tmp
+set TMP=E:\tmp
+conda config --add pkgs_dirs "E:\conda_pkgs"
+conda create --prefix "E:\sits" python=3.10 -y
+conda activate "E:\sits"
+```
+
+### Python dependencies
+
+```bash
 pip install -r requirements.txt
 
-# Install PyTorch (select the command matching your CUDA version)
-# CUDA 12.1
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-# CPU-only
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# PyTorch — pick the command matching your CUDA version
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121   # CUDA 12.1
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118   # CUDA 11.8
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu     # CPU only
 ```
 
-### 3. NASA Earthdata credentials
+### NASA Earthdata credentials
 
-Create `~/.netrc` with your NASA Earthdata login:
+Create `~/.netrc` (Linux/Mac) or `%USERPROFILE%\.netrc` (Windows):
 
 ```
-machine urs.earthdata.nasa.gov login <YOUR_USERNAME> password <YOUR_PASSWORD>
+machine urs.earthdata.nasa.gov login YOUR_USERNAME password YOUR_PASSWORD
 ```
 
 ---
 
 ## Data
 
-### HLS (Harmonized Landsat Sentinel-2)
+### HLS source
 
-| Product | Sensor | Bands used | Resolution |
-|---------|--------|-----------|------------|
-| HLSS30 v2.0 | Sentinel-2 MSI | B02, B03, B04, B8A, B11, Fmask | 30 m |
-| HLSL30 v2.0 | Landsat 8/9 OLI | B02, B03, B04, B05, B06, Fmask | 30 m |
+| Product | Sensor | Bands used |
+|---|---|---|
+| HLSS30 v2.0 | Sentinel-2 MSI | B02, B03, B04, B8A, B11, Fmask |
+| HLSL30 v2.0 | Landsat 8/9 OLI | B02, B03, B04, B05, B06, Fmask |
 
-The model was trained on 7-channel inputs: **Blue, Green, Red, NIR, SWIR1, NDVI, GNDVI**.
+Resolution: 30 m · revisit: ~2–3 days (merged) · harmonized to a 14-day composite grid.
 
-### Input NetCDF format
+### Patch format (NetCDF)
 
-Each patch file is a 48 × 48 pixel NetCDF with:
-- **Dimensions:** `date` (time), `y` (northing), `x` (easting)
+Each patch file covers a 48 × 48 pixel area:
+
+- **Dimensions:** `date`, `y`, `x`
 - **Variables:** `blue`, `green`, `red`, `nir`, `swir1`, `ndvi`, `gndvi`
-- **Value range:** 0–10 000 (scaled ×0.0001 in the data loader) or 0–1 float
-
-### Training data organisation
-
-```
-hls_data48/
-└── segmentation/
-    ├── training_input/      # Patch NetCDF files (*_patch_*.nc)
-    ├── training_target/     # Corresponding label GeoTIFFs
-    ├── validation_input/
-    └── validation_target/
-```
+- **Values:** 0–1 float32 (surface reflectance, already scaled)
+- **Naming:** `hls_patch_XXXXX.nc` (new pipeline) or `*_patch_XXXX.nc` (legacy)
 
 ---
 
-## Workflows
+## Quickstart
 
-### 1. HLS data download
+### 1. Download HLS patches for an area
 
 ```python
-from utils.hls_download import download_hls_for_area
+from utils.hls_download import download_hls
 
-download_hls_for_area(
-    bbox=(-87.5, 13.5, -87.0, 14.0),   # (min_lon, min_lat, max_lon, max_lat)
-    start_date="2022-01-01",
+download_hls(
+    bbox=(-87.65, 14.40, -87.62, 14.43),   # (min_lon, min_lat, max_lon, max_lat)
+    start_date="2021-01-01",
     end_date="2023-12-31",
-    output_path="data/hls_patches",
-    patch_size=48,                       # matches model input resolution
+    output_path="data/my_patches",
+    patch_size=48,
+    strategy="netrc",
 )
 ```
 
-### 2. DINO Pre-training (Self-Supervised)
+Or via CLI:
 
 ```bash
-python training_svits_dino_model_LINUXv2.py
+python run_cropmapper.py download \
+    --bbox -87.5 13.5 -87.0 14.0 \
+    --start 2021-01-01 --end 2023-12-31 \
+    --output data/my_patches
 ```
 
-Edit the config section at the top of the script to set data paths and
-hyperparameters. Pre-training saves teacher backbone weights to `runs_dino/`.
-
-### 3. Segmentation fine-tuning
+### 2. DINO pre-training on downloaded patches
 
 ```bash
-python training_svits_dino_segmentation_modelV3.py
+python run_cropmapper.py pretrain \
+    --patch-dir data/my_patches \
+    --output-dir runs/dino \
+    --epochs 100
 ```
 
-Requires a pre-trained backbone (set `backbone_weight_path` in the config).
-Checkpoints are saved to `runs_dino_seg/`.
-
-### 4. End-to-End Pipeline Execution
-
-Run the full workflow from data download to phenology export with a single command:
-
-```bash
-python demo_pipeline.py \
-    --download \
-    --bbox -87.7 14.3 -87.5 14.5 \
-    --start_date 2023-01-01 \
-    --end_date 2023-12-31 \
-    --input_dir data/hls_test_run2 \
-    --output_dir results_test \
-    --end_year 2023 \
-    --end_month 12 \
-    --n_months_lc 12 \
-    --n_months_cluster 12 \
-    --n_months_phen 6 \
-    --n_clusters 30 \
-    --prefix test_hnd > /tmp/pipeline_run.log 2>&1
-```
-
-#### Parameter Explanation:
-- `--download`: Triggers the HLS (Sentinel-2 + Landsat) data search and download from NASA Earthdata.
-- `--bbox`: Defines the bounding box for the area of interest `[min_lon, min_lat, max_lon, max_lat]`.
-- `--start_date` / `--end_date`: The time window for querying satellite granules.
-- `--input_dir`: Directory where tiled 48x48 pixel NetCDF patches will be stored.
-- `--output_dir`: Directory for the final GeoTIFFs and analytics.
-- `--end_year` / `--end_month`: The reference date used as the anchor for the analysis windows.
-- `--n_months_lc`: Months of data used for **Land-Cover segmentation**.
-- `--n_months_cluster`: Months of data used for **Crop Clustering** (token extraction).
-- `--n_months_phen`: Months of data used for **Phenology detection** (SMF-S fitting).
-- `--n_clusters`: Number of K-Means clusters used to group crop-specific signatures.
-- `--prefix`: Prefix for the output files (e.g., `test_hnd_phenology.tif`).
-- `> /tmp/pipeline_run.log 2>&1`: Redirects both standard output and errors to a log file for background monitoring.
-
-Outputs:
-- `results_test/test_hnd_phenology.tif` — 4-band GeoTIFF (Greenup, Maturity, Senescence, Dormancy DOY)
-
-### 5. Prepare training/validation split
-
-```bash
-python split_into_training_and_validation.py
-```
-
----
-
-## Trained model
-
-| Setting | Value |
-|---------|-------|
-| Architecture | DinoTSViT + SummConv2 segmentation head |
-| Backbone | ViT (6 temporal + 4 spatial layers, dim 256, 16 heads) |
-| Image resolution | 48 × 48 px (patch size 2) |
-| Temporal window | 12 months × 14-day composites |
-| Classes | 21 (CGIAR/FAO land cover scheme) |
-| Checkpoint | `runs_dino_seg/run2_48px_months12_…/TSViTS_checkpoint_iter34314_ep83.pth` |
-
-### Loading for inference
+Or with the default config directly:
 
 ```python
-from omegaconf import OmegaConf
-from detection.detectors import STViTS_detector
+from training.dino_pretrain import DINOTrainer
+import yaml
 
-config = OmegaConf.load("runs_dino_seg/run2_48px_months12_…/config.yml")
-config.DATASETS.paths.training_input = "path/to/patches"
+with open("configs/default.yaml") as f:
+    cfg = yaml.safe_load(f)
 
-detector = STViTS_detector(config, init_scheduler=False)
-detector.load_weights_for_detection(
-    "runs_dino_seg/run2_48px_months12_…/TSViTS_checkpoint_iter34314_ep83.pth"
+trainer = DINOTrainer(
+    model_config=cfg["model"],
+    patch_dir="data/my_patches",
+    output_dir="runs/dino",
+    epochs=100,
+    batch_size=16,
+    device="cuda",
 )
-detector.model.eval()
+trainer.train()
+```
+
+### 3. Supervised fine-tuning
+
+Requires labelled patches (NetCDF with a `label` variable alongside the spectral bands):
+
+```bash
+python run_cropmapper.py finetune \
+    --patch-dir data/labelled_patches \
+    --output-dir runs/finetune \
+    --backbone runs/dino/dino_final.pth \
+    --epochs 50
+```
+
+### 4. Inference
+
+```bash
+python run_cropmapper.py infer \
+    --patch-dir data/my_patches \
+    --weights runs/finetune/tsviT_seg_ep0050_final.pth \
+    --output-dir results/my_area \
+    --end-date 2023-12-31
 ```
 
 ---
 
-## Applications
+## Honduras GPU pipeline
 
-The framework targets precision agriculture and food security monitoring:
+`run_hnd_pretrain.py` automates large-scale pre-training across Honduras: it randomly samples tiles from the country grid, downloads each, and trains DINO on the full collection.
 
-- **Crop mapping** — land-cover classification distinguishing cropland from other land uses at 30 m resolution.
-- **Phenology monitoring** — detecting key growth stages (green-up, peak, senescence) to estimate planting/harvest calendars.
-- **Food security early warning** — identify delayed green-up or anomalous vegetation dynamics at the pixel level.
-- **Yield estimation support** — phenology maps can serve as inputs to process-based crop models.
+### Configuration (`configs/hnd_pretrain.yaml`)
+
+Key GPU settings:
+
+| Parameter | Value | Notes |
+|---|---|---|
+| `patch_size` | 2 | 576 spatial tokens (vs 2304 for patch_size=1) — fits on most GPUs |
+| `dim` | 256 | Embedding dimension |
+| `temporal_depth` | 4 | Temporal transformer layers |
+| `spatial_depth` | 2 | Spatial transformer layers |
+| `crop_batch_size` | 8 | Crops processed per forward pass (increase if VRAM allows) |
+| `batch_size` | 16 | Samples per step |
+| `epochs` | 200 | |
+
+### Usage
+
+```bash
+# Full pipeline: download 50 random tiles + train 200 epochs
+python run_hnd_pretrain.py
+
+# Download only (idempotent — skips tiles already done)
+python run_hnd_pretrain.py --stage download --n-tiles 50
+
+# Train only, auto-resume from latest checkpoint
+python run_hnd_pretrain.py --stage pretrain --resume
+
+# Custom paths and tile count
+python run_hnd_pretrain.py \
+    --patch-dir E:\data\hnd_patches \
+    --output-dir E:\runs\hnd_dino \
+    --n-tiles 150 \
+    --epochs 200 \
+    --batch-size 16 \
+    --workers 4
+```
+
+**How many tiles?**
+- **50 tiles** — recommended start. Enough diversity, ~1–2 h download, fast iteration.
+- **150 tiles** — serious pretraining covering all major biomes of Honduras.
+- **300 tiles** — near-complete national coverage (336 total 0.25° cells in the country grid).
+
+Checkpoints are saved every 10 epochs to `--output-dir`. Re-running with `--resume` auto-loads the latest one.
+
+### Windows notes
+
+- The script uses `if __name__ == "__main__"` so DataLoader workers (`--workers 4`) work correctly on Windows.
+- Mixed precision (AMP) is enabled automatically when a CUDA device is detected.
+- If training on a secondary drive, set the conda environment there (see Installation above).
+
+---
+
+## Scientific background
+
+- **TSViT:** Tarasiou et al. (2023) *ViTs for SITS: Vision Transformers for Satellite Image Time Series.* CVPR.
+  Temporal-first factorization: processes the full temporal sequence per pixel before attending spatially. Uses acquisition-date positional encodings (DOY one-hot → linear projection) rather than sequence-order encodings.
+
+- **DINO:** Caron et al. (2021) *Emerging Properties in Self-Supervised Vision Transformers.* ICCV.
+  Student–teacher EMA framework. Multi-crop augmentation with centering + sharpening. No labels required.
+
+- **SMF-S:** Liu et al. (2022) *Detecting crop phenology from vegetation index time-series data by improved shape model fitting in each phenological stage.* Remote Sensing of Environment 277, 113098.
+  Stage-specific iterative fitting of growth curves to EVI time series to detect Greenup, Maturity, Senescence, Dormancy DOY.
 
 ---
 
 ## Citation
-
-If you use this work, please cite:
 
 ```bibtex
 @inproceedings{tarasiou2023vits,
@@ -282,8 +278,10 @@ If you use this work, please cite:
 }
 
 @article{liu2022detecting,
-  title={Detecting crop phenology from vegetation index time-series data by improved shape model fitting in each phenological stage},
-  author={Liu, Licong and Cao, Ruyin and Chen, Jin and Shen, Miaogen and Wang, Siqing and Zhou, Jie and He, Bingzhe},
+  title={Detecting crop phenology from vegetation index time-series data by improved
+         shape model fitting in each phenological stage},
+  author={Liu, Licong and Cao, Ruyin and Chen, Jin and Shen, Miaogen and
+          Wang, Siqing and Zhou, Jie and He, Bingzhe},
   journal={Remote Sensing of Environment},
   volume={277},
   pages={113098},
@@ -295,4 +293,4 @@ If you use this work, please cite:
 
 ## License
 
-This project is developed at CGIAR. Contact [andres.aguilar@cgiar.org](mailto:andres.aguilar@cgiar.org) for licensing information.
+Developed at CGIAR. Contact [andres.aguilar@cgiar.org](mailto:andres.aguilar@cgiar.org) for licensing.

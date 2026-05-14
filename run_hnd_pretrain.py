@@ -106,7 +106,7 @@ def sample_tiles(
 
 def stage_download(args, cfg: dict, log: logging.Logger) -> int:
     """Download HLS patches for each sampled tile. Returns total patch count."""
-    from utils.hls_download import download_hls
+    from utils.hls_download import login, build_time_series
 
     dl_cfg   = cfg.get("download", {})
     n_tiles  = args.n_tiles  or dl_cfg.get("n_tiles",    50)
@@ -123,9 +123,27 @@ def stage_download(args, cfg: dict, log: logging.Logger) -> int:
 
     tiles = sample_tiles(n_tiles, tile_deg, country_bbox=country_bbox, seed=args.seed)
     log.info(
-        f"Sampled {len(tiles)} tiles  tile_deg={tile_deg}°  "
-        f"dates={start} → {end}"
+        f"Sampled {len(tiles)} tiles  tile_deg={tile_deg}  "
+        f"dates={start} to {end}"
     )
+
+    # Authenticate once — earthaccess.login() must reach urs.earthdata.nasa.gov.
+    # If this times out the server cannot reach NASA; configure a proxy (see below).
+    log.info(f"Authenticating with NASA Earthdata (strategy={strategy}) ...")
+    try:
+        login(strategy=strategy)
+        log.info("Authentication OK")
+    except Exception as exc:
+        log.error(
+            f"NASA Earthdata authentication failed: {exc}\n"
+            f"  The server cannot reach urs.earthdata.nasa.gov.\n"
+            f"  If you are behind a proxy, set the environment variables:\n"
+            f"    set HTTPS_PROXY=http://proxy-host:port\n"
+            f"    set HTTP_PROXY=http://proxy-host:port\n"
+            f"  then re-run.  Alternatively, run the download from a machine\n"
+            f"  with direct internet access."
+        )
+        sys.exit(1)
 
     success = skipped = failed = 0
     for i, bbox in enumerate(tiles):
@@ -134,8 +152,10 @@ def stage_download(args, cfg: dict, log: logging.Logger) -> int:
         # Skip tiles already downloaded (idempotent re-runs)
         existing = list(tile_dir.glob("*.nc")) if tile_dir.exists() else []
         if existing:
-            log.info(f"[{i+1:3d}/{len(tiles)}] tile_{i:03d}  already done"
-                     f"  ({len(existing)} patches)  — skip")
+            log.info(
+                f"[{i+1:3d}/{len(tiles)}] tile_{i:03d}  already done"
+                f"  ({len(existing)} patches)  -- skip"
+            )
             skipped += 1
             continue
 
@@ -145,25 +165,26 @@ def stage_download(args, cfg: dict, log: logging.Logger) -> int:
             f"  bbox=({bbox[0]:.3f},{bbox[1]:.3f},{bbox[2]:.3f},{bbox[3]:.3f})"
         )
         try:
-            download_hls(
+            build_time_series(
                 bbox=bbox,
                 start_date=start,
                 end_date=end,
                 output_path=str(tile_dir),
                 patch_size=patch_size,
-                strategy=strategy,
                 stream=True,
             )
             n_saved = len(list(tile_dir.glob("*.nc")))
-            log.info(f"           → {n_saved} patches")
+            log.info(f"           -> {n_saved} patches")
             success += 1
         except Exception as exc:
-            log.warning(f"           → FAILED: {exc}")
+            log.warning(f"           -> FAILED: {exc}")
             failed += 1
 
-    total = sum(len(list((patch_dir / f"tile_{i:03d}").glob("*.nc")))
-                for i in range(len(tiles))
-                if (patch_dir / f"tile_{i:03d}").exists())
+    total = sum(
+        len(list((patch_dir / f"tile_{i:03d}").glob("*.nc")))
+        for i in range(len(tiles))
+        if (patch_dir / f"tile_{i:03d}").exists()
+    )
     log.info(
         f"Download complete  success={success}  skipped={skipped}  failed={failed}"
         f"  total_patches={total}"
